@@ -12,6 +12,11 @@ _MODULES = {
     "indeed": "app.sources.indeed_api",
     "remoteok": "app.sources.remoteok_api",
     "wellfound": "app.sources.wellfound_api",
+    "greenhouse": "app.sources.greenhouse_api",
+    "lever": "app.sources.lever_api",
+    "hackernews": "app.sources.hackernews_api",
+    "ycombinator": "app.sources.yc_jobs_api",
+    "arbeitnow": "app.sources.arbeitnow_api",
 }
 
 SOURCE_FETCHERS: dict[str, Callable] = {}

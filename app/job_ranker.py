@@ -14,7 +14,6 @@ def score_job(job: dict) -> float:
     full_text = f"{title} {description}"
     score = 0.0
 
-    # Requested scoring weights.
     if "python" in full_text and "backend" in full_text:
         score += 40
     else:
@@ -39,7 +38,6 @@ def score_job(job: dict) -> float:
     if "lead" in full_text:
         score -= 20
 
-    # Keep existing negative relevance penalties to avoid off-target roles.
     if "data engineer" in full_text:
         score -= 20
     if "devops" in full_text:
@@ -49,7 +47,6 @@ def score_job(job: dict) -> float:
     if "frontend" in full_text:
         score -= 15
 
-    # Mild location preference bias for configured countries.
     if any(country in location for country in PREFERRED_COUNTRIES):
         score += 8
 

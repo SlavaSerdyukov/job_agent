@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_CONCURRENCY = 20
+SOURCE_TASK_CONCURRENCY = 10
 
 
 async def _run_source_async(
@@ -25,29 +26,39 @@ async def _run_source_async(
     locations: list[str],
     session: Any,
     semaphore: asyncio.Semaphore,
+    source_semaphore: asyncio.Semaphore,
 ) -> list[dict]:
-    try:
-        jobs = await fetcher(keywords, locations, session, semaphore)
-        logger.info("metric=source_completed source=%s mode=async count=%s", source, len(jobs))
-        return jobs or []
-    except Exception:  # noqa: BLE001
-        logger.exception("Async source failed: %s", source)
-        return []
+    async with source_semaphore:
+        try:
+            jobs = await fetcher(keywords, locations, session, semaphore)
+            logger.info("metric=source_completed source=%s mode=async count=%s", source, len(jobs))
+            return jobs or []
+        except Exception:  # noqa: BLE001
+            logger.exception("Async source failed: %s", source)
+            return []
 
 
-async def _run_source_threaded(source: str, fetcher: Callable, keywords: list[str], locations: list[str]) -> list[dict]:
-    try:
-        jobs = await asyncio.to_thread(fetcher, keywords, locations)
-        logger.info("metric=source_completed source=%s mode=thread count=%s", source, len(jobs))
-        return jobs or []
-    except Exception:  # noqa: BLE001
-        logger.exception("Threaded source failed: %s", source)
-        return []
+async def _run_source_threaded(
+    source: str,
+    fetcher: Callable,
+    keywords: list[str],
+    locations: list[str],
+    source_semaphore: asyncio.Semaphore,
+) -> list[dict]:
+    async with source_semaphore:
+        try:
+            jobs = await asyncio.to_thread(fetcher, keywords, locations)
+            logger.info("metric=source_completed source=%s mode=thread count=%s", source, len(jobs))
+            return jobs or []
+        except Exception:  # noqa: BLE001
+            logger.exception("Threaded source failed: %s", source)
+            return []
 
 
 async def _crawl_without_aiohttp(keywords: list[str], locations: list[str]) -> list[dict]:
+    source_semaphore = asyncio.Semaphore(SOURCE_TASK_CONCURRENCY)
     tasks = [
-        asyncio.create_task(_run_source_threaded(source, fetcher, keywords, locations))
+        asyncio.create_task(_run_source_threaded(source, fetcher, keywords, locations, source_semaphore))
         for source, fetcher in SOURCE_FETCHERS.items()
     ]
 
@@ -82,6 +93,7 @@ async def crawl_jobs_async(
     connector = aiohttp.TCPConnector(limit=max(20, concurrency * 5), ssl=False)
     timeout = aiohttp.ClientTimeout(total=30)
     semaphore = asyncio.Semaphore(max(10, concurrency))
+    source_semaphore = asyncio.Semaphore(SOURCE_TASK_CONCURRENCY)
 
     async with aiohttp.ClientSession(
         timeout=timeout,
@@ -100,14 +112,26 @@ async def crawl_jobs_async(
         for source, async_fetcher in SOURCE_ASYNC_FETCHERS.items():
             tasks.append(
                 asyncio.create_task(
-                    _run_source_async(source, async_fetcher, keywords, locations, session, semaphore)
+                    _run_source_async(
+                        source,
+                        async_fetcher,
+                        keywords,
+                        locations,
+                        session,
+                        semaphore,
+                        source_semaphore,
+                    )
                 )
             )
 
         for source, sync_fetcher in SOURCE_FETCHERS.items():
             if source in SOURCE_ASYNC_FETCHERS:
                 continue
-            tasks.append(asyncio.create_task(_run_source_threaded(source, sync_fetcher, keywords, locations)))
+            tasks.append(
+                asyncio.create_task(
+                    _run_source_threaded(source, sync_fetcher, keywords, locations, source_semaphore)
+                )
+            )
 
         results = await asyncio.gather(*tasks, return_exceptions=False)
 
@@ -123,6 +147,5 @@ def crawl_jobs(keywords: list[str], locations: list[str], *, concurrency: int = 
     try:
         return asyncio.run(crawl_jobs_async(keywords, locations, concurrency=concurrency))
     except RuntimeError:
-        # Fallback if called from an already-running event loop.
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(crawl_jobs_async(keywords, locations, concurrency=concurrency))

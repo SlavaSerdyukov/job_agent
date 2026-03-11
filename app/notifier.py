@@ -21,8 +21,11 @@ def _format_source_label(source: str) -> str:
         "remoteok": "RemoteOK",
         "indeed": "Indeed",
         "wellfound": "Wellfound",
+        "greenhouse": "Greenhouse",
+        "lever": "Lever",
         "hackernews": "HackerNews",
-        "stackoverflow": "StackOverflow",
+        "ycombinator": "Y Combinator",
+        "arbeitnow": "Arbeitnow",
     }
     return known.get(normalized, normalized.title() if normalized else "N/A")
 
