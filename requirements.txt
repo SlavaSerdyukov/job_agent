@@ -1,0 +1,9 @@
+aiohttp
+beautifulsoup4
+lxml
+pandas
+playwright
+pyarrow
+python-dotenv
+requests
+tenacity
